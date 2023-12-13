@@ -2,6 +2,7 @@ require('dotenv').config();
 const fs = require('node:fs');
 const path = require('node:path');
 const { Client, Collection, Events, GatewayIntentBits } = require('discord.js');
+const { AudioPlayer } = require('@discordjs/voice');
 const { joinVoiceChannel} = require('@discordjs/voice');
 const {CHANNEL_ID, TOKEN} = process.env
 
@@ -10,6 +11,9 @@ const {CHANNEL_ID, TOKEN} = process.env
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates] });
 //Creo la coleccion de comandos
 client.commands = new Collection();
+
+//Creo el reproductor de musica
+const audioPlayer = new AudioPlayer()
 
 const foldersPath = path.join(__dirname, 'commands');
 const commandFolders = fs.readdirSync(foldersPath);
@@ -49,15 +53,28 @@ client.login(TOKEN);
 
 client.on(Events.InteractionCreate, async interaction => {
 	if (!interaction.isChatInputCommand()) return;
-	const command = client.commands.get(interaction.commandName);
+	const commandName = interaction.commandName
+	const command = client.commands.get(commandName);
 	if (!command) {
-		console.error(`El comando ${interaction.commandName} no existe.`);
+		console.error(`El comando ${commandName} no existe.`);
 		return;
+	}
+	
+	let args = {}
+	switch(commandName){
+		case 'play':
+			args.connection = connection
+			args.audioPlayer = audioPlayer
+			break;
+		case 'skip':
+			args.audioPlayer = audioPlayer
+			break;
 	}
 
 	try {
-		await command.execute(interaction, connection);
+		await command.execute(interaction, args);
 	} catch (error) {
+		console.log(error)
 		if (interaction.replied || interaction.deferred) {
 			await interaction.followUp({ content: 'Ocurrio un error!', ephemeral: true });
 		} else {
