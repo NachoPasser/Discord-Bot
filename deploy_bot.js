@@ -6,7 +6,7 @@ const { TOKEN, SERVER_ID, CLIENT_ID } = process.env
 
 
 // Obtengo un arreglo con los path de cada comando
-const foldersPath = path.join(__dirname, 'commands');
+const foldersPath = path.join(__dirname, 'slash_commands');
 const commandFiles = fs.readdirSync(foldersPath).filter(file => file.endsWith('.js'));
 
 const commands = [];

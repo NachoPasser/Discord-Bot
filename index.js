@@ -16,7 +16,7 @@ client.commands = new Collection();
 //Creo el reproductor de musica
 const audioPlayer = new AudioPlayer()
 
-const foldersPath = path.join(__dirname, 'commands');
+const foldersPath = path.join(__dirname, 'slash_commands');
 const commandFiles = fs.readdirSync(foldersPath).filter(file => file.endsWith('.js'));
 
 for (const file of commandFiles) {
