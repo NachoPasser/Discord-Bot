@@ -1,8 +1,10 @@
-const { AudioPlayer, createAudioResource} = require('@discordjs/voice');
+const { createAudioResource} = require('@discordjs/voice');
 const {SlashCommandBuilder} = require('discord.js')
+const { joinVoiceChannel} = require('@discordjs/voice');
 const play = require('play-dl'); // Everything
-const axios = require('axios')
-const {API_KEY} = process.env
+const axios = require('axios');
+const { checkUserBotAreInSameChannel } = require('../middleware/checkUserBotSameChannel');
+const { API_KEY } = process.env
 
 const data = new SlashCommandBuilder()
 	.setName('play')
@@ -12,8 +14,18 @@ const data = new SlashCommandBuilder()
 			.setDescription('Link o título de la canción')
             .setRequired(true));
 
-async function execute(interaction, args) {
-    const {connection, audioPlayer} = args;
+async function execute(interaction, audioPlayer) {
+
+    if (!interaction.member.voice?.channel) return await interaction.reply('❌ Conectaté a un canal de voz')
+
+    if (!checkUserBotAreInSameChannel(interaction)) return await interaction.reply('❌ No estás en el mismo canal de voz que Tibu.')
+
+    const connection = joinVoiceChannel({
+        channelId: interaction.member.voice.channel.id,
+        guildId: interaction.guild.id,
+        adapterCreator: interaction.guild.voiceAdapterCreator
+    });
+
     const params = {
         key: API_KEY, // API Key de Youtube API
         q: interaction.options._hoistedOptions[0].value, // Término que deseas buscar en los videos de YouTube
