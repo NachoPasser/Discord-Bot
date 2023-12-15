@@ -6,6 +6,7 @@ const { AudioPlayer } = require('@discordjs/voice');
 const { TOKEN } = process.env
 const { playSong } = require('./text_commands/play')
 const { skipSong } = require('./text_commands/skip')
+const { checkUserBotAreInSameChannel } = require('./middleware/checkUserBotSameChannel');
 
 
 // Creo la instancia del cliente
@@ -38,39 +39,48 @@ client.once(Events.ClientReady, async readyClient => {
 // El bot se loguea en discord usando el token
 client.login(TOKEN);
 
-//Responde a los comandos (/)
+//Responde a los comandos (/) y pulsados de botones
 client.on(Events.InteractionCreate, async interaction => {
-	if (!interaction.isChatInputCommand()) return;
+	
+	if (!interaction.member.voice?.channel) return await interaction.reply({content: '❌ Conectaté a un canal de voz', ephemeral: true})
+    
+    if (!checkUserBotAreInSameChannel(interaction)) return await interaction.reply({content: '❌ No estás en el mismo canal que yo.', ephemeral: true})
+	
+	
+	const audioPlayerStatus = audioPlayer.state.status
+	if(interaction.customId === 'Detener'){
+		interaction.deferUpdate(); //Para que no responda a la interacción
+		if(!(audioPlayerStatus === 'playing')) return; //Si no se está reproduciendo nada
+		
+		audioPlayer.stop();
+		return await interaction.channel.send('👋 Se detuvo la reproducción')
+	}
+	
+	if(interaction.customId === 'Saltear'){ //Si cola no está vacia
+		interaction.deferUpdate(); //Para que no responda a la interacción
+		if(!(audioPlayerStatus === 'playing')) return; //Si no se está reproduciendo nada
+		
+		audioPlayer.stop();
+		return await interaction.channel.send('👋 No quedan canciones para reproducir')
+	} 
+	
 	const commandName = interaction.commandName
 	const command = client.commands.get(commandName);
-	if (!command) {
-		console.error(`El comando ${commandName} no existe.`);
-		return;
-	}
 
-	try {
-		await command.execute(interaction, audioPlayer);
-	} catch (error) {
+	try{
+	   await command.execute(interaction, audioPlayer)
+	} catch(error){
 		console.log(error)
 		if (interaction.replied || interaction.deferred) {
-			await interaction.followUp({ content: 'Ocurrio un error!', ephemeral: true });
+			await interaction.followUp({ content: 'Ocurrio un error inesperado!', ephemeral: true });
 		} else {
-			await interaction.reply({ content: 'Ocurrio un error!', ephemeral: true });
+			await interaction.reply({ content: 'Ocurrio un error inesperado!', ephemeral: true });
 		}
 	}
+
 });
 
 //Responde a los comandos de texto (!)
 client.on(Events.MessageCreate, async message => {
-	if (message.content.startsWith('!')) {
-		
-		switch(message.content.slice(0, 3)){
-			case '!yt':
-				playSong(message, client, audioPlayer)
-				break;
-			case '!s':
-				skipSong(message, client, audioPlayer)
-				break;
-		}
-    }
+	if (message.content.startsWith('!yt')) return playSong(message, audioPlayer)
 })
