@@ -1,9 +1,28 @@
 const { createAudioResource} = require('@discordjs/voice');
-const {SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle} = require('discord.js')
+const {SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder} = require('discord.js')
 const { joinVoiceChannel} = require('@discordjs/voice');
 const play = require('play-dl'); // Everything
 const axios = require('axios');
 const { API_KEY } = process.env
+
+function createEmbedMessage(interaction, video, queuedTracks){
+    
+    const sentence = queuedTracks === 1 ? 'canción' : 'canciones'
+    const avatarURL = `https://cdn.discordapp.com/avatars/${interaction.user.id}/${interaction.user.avatar}`
+    const snippet = video.snippet
+    
+    const embed = new EmbedBuilder()
+        .setColor(0x0099FF)
+        .setTitle(`${snippet.title}`)
+        .setURL(`https://www.youtube.com/watch?v=${video.id.videoId}`)
+        .setAuthor({ name: 'Ahora suena', iconURL: 'https://i.imgur.com/3QhLUzq.png' })
+        .setThumbnail(`${snippet.thumbnails.high.url}`)
+        .addFields({ name: 'En cola', value: `\`\`${queuedTracks} ${sentence}\`\``, inline: true })
+        .setTimestamp()
+        .setFooter({ text: `Pedida por ${interaction.user.displayName}`, iconURL: `${avatarURL}` });
+    
+    return embed
+}
 
 const data = new SlashCommandBuilder()
 	.setName('play')
@@ -24,9 +43,9 @@ const stop = new ButtonBuilder()
 .setStyle(ButtonStyle.Danger);
 
 const row = new ActionRowBuilder()
-.addComponents(stop, skip);          
+.addComponents(stop, skip);   
 
-async function execute(interaction, audioPlayer) {
+async function execute(interaction, audioPlayer, queuedTracks) {
 
     const connection = joinVoiceChannel({
         channelId: interaction.member.voice.channel.id,
@@ -42,8 +61,8 @@ async function execute(interaction, audioPlayer) {
     };
     
     const response = await axios.get(`https://youtube.googleapis.com/youtube/v3/search`, {params});
-    const videoId = response.data.items[0].id.videoId;
-    const source = await play.stream(`https://www.youtube.com/watch?v=${videoId}`)
+    const video =  response.data.items[0]
+    const source = await play.stream(`https://www.youtube.com/watch?v=${video.id.videoId}`)
     
     const audioResource = createAudioResource(source.stream, {
         inputType : source.type
@@ -51,11 +70,24 @@ async function execute(interaction, audioPlayer) {
 
     connection.subscribe(audioPlayer)
     audioPlayer.play(audioResource)
+
+    const embed = createEmbedMessage(interaction,video,queuedTracks)
     
-    await interaction.reply({
-        content: `Reproduciendo https://www.youtube.com/watch?v=${videoId}`,
+    const reply = await interaction.reply({
+        embeds: [embed],
         components: [row]
     })
+    
+    const collector = interaction.channel.createMessageComponentCollector()
+
+    collector.on("collect", async () => {
+        row.components[0].setDisabled(true)
+        row.components[1].setDisabled(true)
+        reply.edit({ embeds: [embed], components: [row] })
+    })
+
+    return connection
+    
 }
 
 module.exports = {data, execute}
