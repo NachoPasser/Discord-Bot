@@ -3,6 +3,7 @@ const {SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedB
 const { joinVoiceChannel} = require('@discordjs/voice');
 const play = require('play-dl'); // Everything
 const axios = require('axios');
+const getVideoFromYt = require('../middleware/getVideoFromYt');
 const { API_KEY } = process.env
 
 function createEmbedMessage(interaction, video, queuedTracks){
@@ -45,13 +46,15 @@ const stop = new ButtonBuilder()
 const row = new ActionRowBuilder()
 .addComponents(stop, skip);   
 
-async function execute(interaction, audioPlayer, queuedTracks) {
+async function playSongSlash(interaction, audioPlayer, queuedTracks, connection) {
 
-    const connection = joinVoiceChannel({
-        channelId: interaction.member.voice.channel.id,
-        guildId: interaction.guild.id,
-        adapterCreator: interaction.guild.voiceAdapterCreator
-    });
+    if(!connection){ // Si el bot no está conectado a un canal de voz
+        connection = joinVoiceChannel({
+            channelId: interaction.member.voice.channel.id,
+            guildId: interaction.guild.id,
+            adapterCreator: interaction.guild.voiceAdapterCreator
+        });
+    }
 
     const params = {
         key: API_KEY, // API Key de Youtube API
@@ -60,34 +63,47 @@ async function execute(interaction, audioPlayer, queuedTracks) {
         type: 'video' // Tipo de dato que recibo
     };
     
-    const response = await axios.get(`https://youtube.googleapis.com/youtube/v3/search`, {params});
-    const video =  response.data.items[0]
-    const source = await play.stream(`https://www.youtube.com/watch?v=${video.id.videoId}`)
+    try {
+        const video = await getVideoFromYt(params)
+        const source = await play.stream(`https://www.youtube.com/watch?v=${video.id.videoId}`)
+        
+        const audioResource = createAudioResource(source.stream, {
+            inputType : source.type
+        })
     
-    const audioResource = createAudioResource(source.stream, {
-        inputType : source.type
-    })
-
-    connection.subscribe(audioPlayer)
-    audioPlayer.play(audioResource)
-
-    const embed = createEmbedMessage(interaction,video,queuedTracks)
+        connection.subscribe(audioPlayer)
+        audioPlayer.play(audioResource)
     
-    const reply = await interaction.reply({
-        embeds: [embed],
-        components: [row]
-    })
+        const embed = createEmbedMessage(interaction,video,queuedTracks)
+        
+        // Los botones pueden haber sido deshabilitados previamente, los habilito de nuevo
+        row.components[0].setDisabled(false)
+        row.components[1].setDisabled(false)
+
+        const reply = await interaction.reply({
+            embeds: [embed],
+            components: [row]
+        })
+        
+        // Deshabilito los botones cuando el usuario pulsa uno de ellos
+        const collector = interaction.channel.createMessageComponentCollector()
     
-    const collector = interaction.channel.createMessageComponentCollector()
-
-    collector.on("collect", async () => {
-        row.components[0].setDisabled(true)
-        row.components[1].setDisabled(true)
-        reply.edit({ embeds: [embed], components: [row] })
-    })
-
-    return connection
+        collector.on("collect", async () => {
+            row.components[0].setDisabled(true)
+            row.components[1].setDisabled(true)
+            reply.interaction.editReply({ embeds: [embed], components: [row] })
+        })
+    
+        return connection
+    } catch(error){
+		console.log(error)
+		if (interaction.replied || interaction.deferred) {
+			await interaction.followUp({ content: ':crying_cat_face: Ocurrio un error inesperado!', ephemeral: true });
+		} else {
+			await interaction.reply({ content: ':crying_cat_face: Ocurrio un error inesperado!', ephemeral: true });
+		}
+	}
     
 }
 
-module.exports = {data, execute}
+module.exports = {data, playSongSlash}

@@ -4,8 +4,11 @@ const path = require('node:path');
 const { Client, Collection, Events, GatewayIntentBits, EmbedBuilder } = require('discord.js');
 const { AudioPlayer } = require('@discordjs/voice');
 const { TOKEN } = process.env
-const { playSong } = require('./text_commands/play')
+const { playSongText } = require('./text_commands/play')
 const { checkUserBotAreInSameChannel } = require('./middleware/checkUserBotSameChannel');
+const stopSong = require('./button_commands/stop');
+const skipSong = require('./button_commands/skip');
+const { playSongSlash } = require('./slash_commands/play');
 
 
 // Creo la instancia del cliente
@@ -22,19 +25,8 @@ const audioPlayer = new AudioPlayer()
 // Conexión al chat de voz
 let connection = null
 
-const foldersPath = path.join(__dirname, 'slash_commands');
-const commandFiles = fs.readdirSync(foldersPath).filter(file => file.endsWith('.js'));
-
-for (const file of commandFiles) {
-	const filePath = path.join(foldersPath, file);
-	const command = require(filePath);
-	
-	if ('data' in command && 'execute' in command) {
-		client.commands.set(command.data.name, command);
-	} else {
-		console.log(`El comando en ${filePath} no tiene una propiedad "data" o "execute".`);
-	}
-}
+// Canal donde se pidio la ultima canción
+let lastTrackChannel = null
 
 // Se ejecuta una sola vez. En este caso cuando el cliente esta listo.
 client.once(Events.ClientReady, async readyClient => {
@@ -76,111 +68,96 @@ function createEnqueueEmbedMessage({event, type}){
 	return embed
 }
 
-// Función para ejecutar comandos
-async function executeCommand(interaction){
-	const commandName = interaction.commandName
-	const command = client.commands.get(commandName);
-
-	try{
-		return await command.execute(interaction, audioPlayer, tracks.length)
-	} catch(error){
-		console.log(error)
-		if (interaction.replied || interaction.deferred) {
-			await interaction.followUp({ content: ':crying_cat_face: Ocurrio un error inesperado!', ephemeral: true });
-		} else {
-			await interaction.reply({ content: ':crying_cat_face: Ocurrio un error inesperado!', ephemeral: true });
-		}
-	}
-}
-
 // Responde a los comandos (/) y pulsados de botones
 client.on(Events.InteractionCreate, async interaction => {
-	if (!interaction.member.voice?.channel) return await interaction.reply({content: ':crying_cat_face:  Conectaté a un canal de voz', ephemeral: true})
-
-    if (!checkUserBotAreInSameChannel(interaction)) return await interaction.reply({content: ':crying_cat_face:  No estás en el mismo canal que yo.', ephemeral: true})
 	
-	const audioPlayerStatus = audioPlayer.state.status
+	if (!interaction.member.voice?.channel){
+		return await interaction.reply({
+			content: ':crying_cat_face:  Conectaté a un canal de voz', 
+			ephemeral: true
+		})
+	} 
+
+    if (!checkUserBotAreInSameChannel(interaction)){
+		return await interaction.reply({
+			content: ':crying_cat_face:  No estás en el mismo canal que yo.', 
+			ephemeral: true
+		})
+	} 
+
+	// Si se pulso el botón para detener
 	if(interaction.customId === 'Detener'){
-		if(!(audioPlayerStatus === 'playing')) return interaction.deferUpdate();; //Si no se está reproduciendo nada
-		
-		tracks = []
-		audioPlayer.stop();
-		connection.disconnect()
-
-		const embed = new EmbedBuilder()
-		.setColor(0x00008b)
-		.setAuthor({name: 'Desconectado'})
-		.setDescription(':zzz: Chau, me voy a dormir')
-
-		return await interaction.reply({embeds: [embed]})
+		connection = await stopSong(interaction, audioPlayer, connection)
+		return;
 	}
 	
+	// Si se pulso el botón para saltear
 	if(interaction.customId === 'Saltear'){
-		interaction.deferUpdate(); //Para que no responda a la interacción
-		audioPlayer.stop();
-
-		const embed = new EmbedBuilder()
-		.setColor(0xFFB347)
-		.setAuthor({name: 'Cola terminada'})
-		.setDescription('No quedan más canciones por reproducir :smirk_cat:')
-
-		if(audioPlayerStatus === 'playing' && !tracks.length) await interaction.channel.send({embeds: [embed]})
-		
+		await skipSong(interaction, audioPlayer, tracks.length)
 		return;
 	} 
 	
-	if(audioPlayer.state.status === 'playing'){ //Si se está reproduciendo una canción
+	// Si se está reproduciendo una canción
+	if(audioPlayer.state.status === 'playing'){ 
 		const data = {event: interaction, type: 'interaction'}
 		
-		addSongToQueue(data) //La sumo a la lista
+		addSongToQueue(data) // Sumo la nueva canción a la lista
 		const embed = createEnqueueEmbedMessage(data)
 		
 		return await interaction.reply({embeds: [embed]})
 	}
-	
-	// Si no, la reproduzco
-	connection = await executeCommand(interaction)
 
+	// Si no, la reproduzco
+	connection = await playSongSlash(interaction, audioPlayer, tracks.length, connection)
+	lastTrackChannel = interaction.channel
 });
 
 // Responde a los comandos de texto (!)
 client.on(Events.MessageCreate, async message => {
 	
 	if(message.content.startsWith('!yt')){
-		
 		if(audioPlayer.state.status === 'playing'){ //Si se está reproduciendo una canción
 			const data = {event: message, type: 'message'}
 			
 			addSongToQueue(data) //La sumo a la lista
-			const embed = createEmbedMessage(data)
-
+			const embed = createEnqueueEmbedMessage(data)
+			
 			return await message.channel.send({ embeds: [embed] })
 		}
 		
 		// Si no, la reproduzco
-		return playSong(message, audioPlayer, tracks.length)
+		connection = await playSongText(message, audioPlayer, tracks.length, connection)
+		lastTrackChannel = message.channel
 		
 	}
 })
 
+let timeoutTillDisconect = null
 audioPlayer.on('stateChange', async (oldState, newState) => {
 
+	// Elimino el contador de inactividad
+	clearTimeout(timeoutTillDisconect)
+
 	// El bot se desconecta tras 3 minutos de inactividad
-	let timeoutTillDisconect = null
 	if(newState.status === 'idle'){
 		timeoutTillDisconect = setTimeout(() => {
-			connection.disconnect()
+			const embed = new EmbedBuilder()
+			.setColor(0x00008b)
+			.setAuthor({name: 'Desconectado por inactividad'})
+			.setDescription(':zzz: Me voy a dormir')
+			connection.destroy()
+			connection = null
+			lastTrackChannel.send({embeds: [embed]})
 		}, 180000);
 	}
 
 	// Cuando la canción termina y hay canciones pendientes a reproducir
 	if(oldState.status === 'playing' && newState.status === 'idle' && tracks.length){
-		clearTimeout(timeoutTillDisconect)
 		const actualTrack = tracks.shift() //Obtengo y quito la canción de la lista
 		
-		if(actualTrack.type === 'interaction') await executeCommand(actualTrack.event)
+		if(actualTrack.type === 'interaction') await playSongSlash(actualTrack.event, audioPlayer, tracks.length, connection)
 		
-		else playSong(actualTrack.event, audioPlayer, tracks.length)
+		else playSongText(actualTrack.event, audioPlayer, tracks.length, connection)
 	}
 })
 
