@@ -55,8 +55,10 @@ async function playSongText(message, audioPlayer, queuedTracks, connection){
 
     let query = message.content.split('!yt ')[1]
     
-    if(!query) return message.reply(':crying_cat_face: Agregá una canción')
-
+    if(!query){
+        await message.reply(':crying_cat_face: Agregá una canción')
+        return connection
+    } 
     const params = {
         key: API_KEY, // API Key de Youtube API
         q: query, // Término que deseas buscar en los videos de YouTube
