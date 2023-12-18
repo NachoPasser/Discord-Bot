@@ -1,8 +1,6 @@
-const {ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder} = require('discord.js')
-const { createAudioResource} = require('@discordjs/voice');
-const { joinVoiceChannel} = require('@discordjs/voice');
-const play = require('play-dl'); // Everything
-const axios = require('axios');
+const {ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, } = require('discord.js')
+const { createAudioResource, joinVoiceChannel} = require('@discordjs/voice');
+const play = require('play-dl');
 const { checkUserBotAreInSameChannel } = require('../middleware/checkUserBotSameChannel');
 const getVideoFromYt = require('../middleware/getVideoFromYt');
 const { API_KEY } = process.env
@@ -26,19 +24,24 @@ function createEmbedMessage(message, video, queuedTracks){
     return embed
 }
 
+// Función para enviar respuestas con botones
+function sendButtonResponse() {
+    const skip = new ButtonBuilder()
+        .setCustomId('Saltear')
+        .setLabel('Saltear')
+        .setStyle(ButtonStyle.Primary);
 
-const skip = new ButtonBuilder()
-.setCustomId('Saltear')
-.setLabel('Saltear')
-.setStyle(ButtonStyle.Primary);
+    const stop = new ButtonBuilder()
+        .setCustomId('Detener')
+        .setLabel('Detener')
+        .setStyle(ButtonStyle.Danger);
 
-const stop = new ButtonBuilder()
-.setCustomId('Detener')
-.setLabel('Detener')
-.setStyle(ButtonStyle.Danger);
+    const row = new ActionRowBuilder()
+        .addComponents(stop, skip);  
 
-const row = new ActionRowBuilder()
-.addComponents(stop, skip);    
+    return row
+}
+  
 
 async function playSongText(message, audioPlayer, queuedTracks, connection){
     //Me gustaria enviarlos como ephemeral messages pero actualmente no es posible
@@ -65,8 +68,16 @@ async function playSongText(message, audioPlayer, queuedTracks, connection){
         type: 'video', // Tipo de dato que recibo
     };
     
+    const channel = message.channel
+
     try {
         const video = await getVideoFromYt(params)
+        
+        if(!video){
+            await channel.send({ content: ':crying_cat_face: No se encontró ningún video' });
+            return connection
+        }
+        
         const source = await play.stream(`https://www.youtube.com/watch?v=${video.id.videoId}`)
         const audioResource = createAudioResource(source.stream, {
             inputType : source.type
@@ -74,28 +85,40 @@ async function playSongText(message, audioPlayer, queuedTracks, connection){
         connection.subscribe(audioPlayer)
         audioPlayer.play(audioResource)
         
-        const channel = message.channel
         const embed = createEmbedMessage(message, video, queuedTracks)
         
-        // Los botones pueden haber sido deshabilitados previamente, los habilito de nuevo
-        row.components[0].setDisabled(false)
-        row.components[1].setDisabled(false)
+        const row = sendButtonResponse()
 
         const reply = await channel.send({ embeds: [embed], components: [row]});
         
-        const collector = channel.createMessageComponentCollector()
-    
-        // Deshabilito los botones cuando el usuario pulsa uno de ellos
-        collector.on("collect", async () => {
-            row.components[0].setDisabled(true)
-            row.components[1].setDisabled(true)
-            reply.edit({ embeds: [embed], components: [row] })
-        })
-
+        // Cuando termina la canción, se deshabilitan los botones
+        audioPlayer.on('stateChange', (oldState, newState) => {
+            if (newState.status === 'idle' || newState.status === 'autopaused') {
+                row.components[0].setDisabled(true)
+                row.components[1].setDisabled(true)
+                reply.edit({ embeds: [embed], components: [row] })
+            }
+        });
+        
         return connection
     } catch (error) {
+        console.log(connection)
         console.log(error)
-        await channel.send({ content: ':crying_cat_face: Ocurrio un error inesperado!' });
+        let reason = error.message
+        let message = ':crying_cat_face: '
+        switch(reason){
+            case 'Unexpected':
+                message += 'Ocurrio un error inesperado!'
+                break;
+            case 'Quota Exceeded':
+                const timeWhereQuotaReset = new Date();
+                // Establezco la hora en 8:00 AM UTC (hora donde se reinicia la cuota)
+                timeWhereQuotaReset.setUTCHours(8, 0, 0, 0); 
+                message += `La cuota diaria fue superada, espere hasta las ${timeWhereQuotaReset.toLocaleTimeString()}.`
+                break;
+        }
+        await channel.send({ content: message });
+        return connection
     }
 }
 

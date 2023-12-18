@@ -1,6 +1,4 @@
 require('dotenv').config();
-const fs = require('node:fs');
-const path = require('node:path');
 const { Client, Collection, Events, GatewayIntentBits, EmbedBuilder } = require('discord.js');
 const { AudioPlayer } = require('@discordjs/voice');
 const { TOKEN } = process.env
@@ -9,10 +7,12 @@ const { checkUserBotAreInSameChannel } = require('./middleware/checkUserBotSameC
 const stopSong = require('./button_commands/stop');
 const skipSong = require('./button_commands/skip');
 const { playSongSlash } = require('./slash_commands/play');
+const deployCommandsOnGuild = require('./deploy_bot_server');
 
 
 // Creo la instancia del cliente
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
+
 // Creo la coleccion de comandos
 client.commands = new Collection();
 
@@ -35,6 +35,11 @@ client.once(Events.ClientReady, async readyClient => {
 
 // El bot se loguea en discord usando el token
 client.login(TOKEN);
+
+// Cuando el bot ingresa a un nuevo servidor, se suben sus comandos
+client.on('guildCreate', async (guild) => {
+	deployCommandsOnGuild(guild.id)
+})
 
 // Función para agregar canciones a la lista
 function addSongToQueue(track){
@@ -88,6 +93,7 @@ client.on(Events.InteractionCreate, async interaction => {
 	// Si se pulso el botón para detener
 	if(interaction.customId === 'Detener'){
 		connection = await stopSong(interaction, audioPlayer, connection)
+		tracks = []
 		return;
 	}
 	
@@ -114,7 +120,7 @@ client.on(Events.InteractionCreate, async interaction => {
 
 // Responde a los comandos de texto (!)
 client.on(Events.MessageCreate, async message => {
-	
+
 	if(message.content.startsWith('!yt')){
 		if(audioPlayer.state.status === 'playing'){ //Si se está reproduciendo una canción
 			const data = {event: message, type: 'message'}
@@ -131,8 +137,8 @@ client.on(Events.MessageCreate, async message => {
 		
 	}
 })
-
 let timeoutTillDisconect = null
+// Response cuando el reproductor de musica cambia de estado
 audioPlayer.on('stateChange', async (oldState, newState) => {
 
 	// Elimino el contador de inactividad
@@ -145,20 +151,25 @@ audioPlayer.on('stateChange', async (oldState, newState) => {
 			.setColor(0x00008b)
 			.setAuthor({name: 'Desconectado por inactividad'})
 			.setDescription(':zzz: Me voy a dormir')
-			connection.destroy()
-			connection = null
-			lastTrackChannel.send({embeds: [embed]})
+			connection.destroy() // Desconecto al bot
+			connection = null // Elimino la conexión
+			lastTrackChannel.send({embeds: [embed]}) // Envio aviso al ultimo canal de texto donde se comunicaron con el bot
 		}, 180000);
 	}
 
 	// Cuando la canción termina y hay canciones pendientes a reproducir
 	if(oldState.status === 'playing' && newState.status === 'idle' && tracks.length){
 		const actualTrack = tracks.shift() //Obtengo y quito la canción de la lista
-		
+		// La reproduzco
 		if(actualTrack.type === 'interaction') await playSongSlash(actualTrack.event, audioPlayer, tracks.length, connection)
 		
 		else playSongText(actualTrack.event, audioPlayer, tracks.length, connection)
 	}
+})
+
+// Lo agrego para mantenimiento
+audioPlayer.on('error', (error) => {
+	console.log(error)
 })
 
 

@@ -1,9 +1,8 @@
 const { EmbedBuilder } = require("discord.js");
 
 async function stopSong(interaction, audioPlayer, connection){
-    if(!(audioPlayer.state.status === 'playing')) return interaction.deferUpdate();; //Si no se está reproduciendo nada
+    if(!(audioPlayer.state.status === 'playing')) return interaction.deferUpdate(); //Si no se está reproduciendo nada
 		
-    tracks = []
     audioPlayer.stop();
     connection.destroy()
 

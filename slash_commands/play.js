@@ -2,7 +2,6 @@ const { createAudioResource} = require('@discordjs/voice');
 const {SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder} = require('discord.js')
 const { joinVoiceChannel} = require('@discordjs/voice');
 const play = require('play-dl'); // Everything
-const axios = require('axios');
 const getVideoFromYt = require('../middleware/getVideoFromYt');
 const { API_KEY } = process.env
 
@@ -33,18 +32,23 @@ const data = new SlashCommandBuilder()
 			.setDescription('Link o título de la canción')
             .setRequired(true));
 
-const skip = new ButtonBuilder()
-.setCustomId('Saltear')
-.setLabel('Saltear')
-.setStyle(ButtonStyle.Primary);
+// Función para enviar respuestas con botones
+function sendButtonResponse() {
+    const skip = new ButtonBuilder()
+        .setCustomId('Saltear')
+        .setLabel('Saltear')
+        .setStyle(ButtonStyle.Primary);
 
-const stop = new ButtonBuilder()
-.setCustomId('Detener')
-.setLabel('Detener')
-.setStyle(ButtonStyle.Danger);
+    const stop = new ButtonBuilder()
+        .setCustomId('Detener')
+        .setLabel('Detener')
+        .setStyle(ButtonStyle.Danger);
 
-const row = new ActionRowBuilder()
-.addComponents(stop, skip);   
+    const row = new ActionRowBuilder()
+        .addComponents(stop, skip);  
+
+    return row
+}
 
 async function playSongSlash(interaction, audioPlayer, queuedTracks, connection) {
 
@@ -70,38 +74,65 @@ async function playSongSlash(interaction, audioPlayer, queuedTracks, connection)
         const audioResource = createAudioResource(source.stream, {
             inputType : source.type
         })
-    
         connection.subscribe(audioPlayer)
         audioPlayer.play(audioResource)
     
         const embed = createEmbedMessage(interaction,video,queuedTracks)
-        
-        // Los botones pueden haber sido deshabilitados previamente, los habilito de nuevo
-        row.components[0].setDisabled(false)
-        row.components[1].setDisabled(false)
 
-        const reply = await interaction.reply({
-            embeds: [embed],
-            components: [row]
-        })
-        
-        // Deshabilito los botones cuando el usuario pulsa uno de ellos
-        const collector = interaction.channel.createMessageComponentCollector()
-    
-        collector.on("collect", async () => {
-            row.components[0].setDisabled(true)
-            row.components[1].setDisabled(true)
-            reply.interaction.editReply({ embeds: [embed], components: [row] })
-        })
+        const row = sendButtonResponse()
+
+        let reply = null
+        // Cuando salteo una canción reutilizo la interacción. Como antes respondí con el aviso, no puedo usar reply
+        if(interaction.replied){ 
+            reply = await interaction.followUp({
+                embeds: [embed],
+                components: [row]
+            })
+        } else{
+            reply = await interaction.reply({
+                embeds: [embed],
+                components: [row]
+            })
+        }
+
+        // Cuando termina la canción, se deshabilitan los botones
+        audioPlayer.on('stateChange', (oldState, newState) => {
+            if (newState.status === 'idle' || newState.status === 'autopaused') {
+                row.components[0].setDisabled(true)
+                row.components[1].setDisabled(true)
+                if(interaction.replied){ // followUp no retorna un InteractionResponse sino un Message
+                    reply.edit({ embeds: [embed], components: [row] }) // Por eso uso un metodo diferente
+                } else{
+                    reply.interaction.editReply({ embeds: [embed], components: [row] })
+                }
+            }
+        });
     
         return connection
     } catch(error){
+        console.log(connection)
 		console.log(error)
-		if (interaction.replied || interaction.deferred) {
-			await interaction.followUp({ content: ':crying_cat_face: Ocurrio un error inesperado!', ephemeral: true });
+        let reason = error.message
+        let message = ':crying_cat_face: '
+        switch(reason){
+            case 'Unexpected':
+                message += 'Ocurrio un error inesperado!'
+                break;
+            case 'Quota Exceeded':
+                const timeWhereQuotaReset = new Date();
+                // Establezco la hora en 8:00 AM UTC (hora donde se reinicia la cuota)
+                timeWhereQuotaReset.setUTCHours(8, 0, 0, 0); 
+                message += `La cuota diaria fue superada, espere hasta las ${timeWhereQuotaReset.toLocaleTimeString()}.`
+                break;
+        }
+
+        if (interaction.replied) {
+			await interaction.followUp({ content: message, ephemeral: true });
 		} else {
-			await interaction.reply({ content: ':crying_cat_face: Ocurrio un error inesperado!', ephemeral: true });
+			await interaction.reply({ content: message, ephemeral: true });
 		}
+
+        return connection
 	}
     
 }
