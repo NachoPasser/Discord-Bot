@@ -131,6 +131,15 @@ client.on(Events.MessageCreate, async message => {
 			return await message.channel.send({ embeds: [embed] })
 		}
 		
+		//Me gustaria enviarlos como ephemeral messages pero actualmente no es posible
+		if (!message.member.voice?.channel){
+			return await message.reply(':crying_cat_face: Conectaté a un canal de voz')
+		} 
+    
+		if (!checkUserBotAreInSameChannel(message)){
+			return await message.reply(':crying_cat_face: No estás en el mismo canal que yo.')
+		} 
+
 		// Si no, la reproduzco
 		connection = await playSongText(message, audioPlayer, tracks.length, connection)
 		lastTrackChannel = message.channel

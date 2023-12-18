@@ -44,10 +44,6 @@ function sendButtonResponse() {
   
 
 async function playSongText(message, audioPlayer, queuedTracks, connection){
-    //Me gustaria enviarlos como ephemeral messages pero actualmente no es posible
-    if (!message.member.voice?.channel) return await message.reply(':crying_cat_face: Conectaté a un canal de voz')
-    
-    if (!checkUserBotAreInSameChannel(message)) return await message.reply(':crying_cat_face: No estás en el mismo canal que yo.')
     
     if(!connection){ // Si el bot no está conectado a un canal de voz
         connection = joinVoiceChannel({
