@@ -2,7 +2,6 @@ require('dotenv').config();
 const { Client, Collection, Events, GatewayIntentBits } = require('discord.js');
 const { AudioPlayer, joinVoiceChannel } = require('@discordjs/voice');
 const http = require('http');
-const PriorityQueue = require('js-priority-queue');
 const { Queue } = require('@datastructures-js/queue');
 const { TOKEN, CLIENT_ID } = process.env
 const deployCommandsOnGuild = require('./deploy_bot_server');
