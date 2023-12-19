@@ -88,7 +88,7 @@ async function executeSlashCommand(interaction){
 	} 
 	
 	// Si se está reproduciendo una canción
-	if(audioPlayer.state.status === 'playing'){ 
+	if(audioPlayer.state.status === 'buffering' || audioPlayer.state.status === 'playing'){ 
 		const data = {event: interaction, type: 'interaction'}
 		
 		addSongToQueue(data) // Sumo la nueva canción a la lista
@@ -114,7 +114,7 @@ async function executeSlashCommand(interaction){
 async function executeTextCommand(message){
 	console.log(audioPlayer.state.status)
 	console.log('----------------------------------------------------------------------')
-	if(audioPlayer.state.status === 'playing'){ //Si se está reproduciendo una canción
+	if(audioPlayer.state.status === 'buffering' || audioPlayer.state.status === 'playing'){ //Si se está reproduciendo una canción
 		const data = {event: message, type: 'message'}
 		
 		addSongToQueue(data) //La sumo a la lista
