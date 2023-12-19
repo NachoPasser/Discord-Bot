@@ -182,16 +182,10 @@ client.on(Events.MessageCreate, async message => {
 let timeoutTillDisconect = null
 // Response cuando el reproductor de musica cambia de estado
 audioPlayer.on('stateChange', async (oldState, newState) => {
+	
 	// Elimino el contador de inactividad
 	clearTimeout(timeoutTillDisconect)
-
-	// El bot se desconecta tras 3 minutos de inactividad
-	if(newState.status === 'idle'){
-		timeoutTillDisconect = setTimeout(() => {
-			connection.destroy() // Desconecto al bot
-		}, 180000);
-	}
-
+	
 	// Cuando la canción termina y hay canciones pendientes a reproducir
 	if(oldState.status === 'playing' && newState.status === 'idle' && !tracks.isEmpty()){
 		const actualTrack = tracks.dequeue() //Obtengo y quito la canción de la cola
@@ -200,8 +194,15 @@ audioPlayer.on('stateChange', async (oldState, newState) => {
 		
 		else playSongText(actualTrack.event, audioPlayer, tracks.size(), connection)
 	}
+	
+	// El bot se desconecta tras 3 minutos de inactividad
+	if(newState.status === 'idle'){
+		timeoutTillDisconect = setTimeout(() => {
+			connection.destroy() // Desconecto al bot
+		}, 180000);
+	}
 })
-
+	
 // Lo agrego para mantenimiento
 audioPlayer.on('error', (error) => {
 	console.log(error)
