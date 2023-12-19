@@ -6,7 +6,7 @@ async function getVideoFromYt(params){
         return video
     } catch (error) {
         console.log(error.response)
-        if(error.response.statusText === 'Quota Exceeded') throw new Error('Quota Exceeded')
+        if(error.response.statusText === 'Forbidden') throw new Error('Quota Exceeded')
         else throw new Error('Unexpected')
     }
 }

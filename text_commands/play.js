@@ -1,28 +1,9 @@
 const {ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, } = require('discord.js')
-const { createAudioResource, joinVoiceChannel} = require('@discordjs/voice');
+const { createAudioResource } = require('@discordjs/voice');
 const play = require('play-dl');
-const { checkUserBotAreInSameChannel } = require('../middleware/checkUserBotSameChannel');
 const getVideoFromYt = require('../middleware/getVideoFromYt');
+const { createPlayEmbedMessage } = require('../middleware/embeds');
 const { API_KEY } = process.env
-
-function createEmbedMessage(message, video, queuedTracks){
-    
-    const sentence = queuedTracks === 1 ? 'canción' : 'canciones'
-    const avatarURL = `https://cdn.discordapp.com/avatars/${message.author.id}/${message.author.avatar}`
-    const snippet = video.snippet
-    
-    const embed = new EmbedBuilder()
-        .setColor(0x0099FF)
-        .setTitle(`${snippet.title}`)
-        .setURL(`https://www.youtube.com/watch?v=${video.id.videoId}`)
-        .setAuthor({ name: 'Ahora suena', iconURL: 'https://i.imgur.com/3QhLUzq.png' })
-        .setThumbnail(`${snippet.thumbnails.high.url}`)
-        .addFields({ name: 'En cola', value: `\`\`${queuedTracks} ${sentence}\`\``, inline: true })
-        .setTimestamp()
-        .setFooter({ text: `Pedida por ${message.author.displayName}`, iconURL: `${avatarURL}` });
-    
-    return embed
-}
 
 // Función para enviar respuestas con botones
 function sendButtonResponse() {
@@ -42,23 +23,15 @@ function sendButtonResponse() {
     return row
 }
   
-
 async function playSongText(message, audioPlayer, queuedTracks, connection){
-    
-    if(!connection){ // Si el bot no está conectado a un canal de voz
-        connection = joinVoiceChannel({
-            channelId: message.member.voice.channel.id,
-            guildId: message.guild.id,
-            adapterCreator: message.guild.voiceAdapterCreator
-        });
-    }
 
     let query = message.content.split('!yt ')[1]
     
     if(!query){
         await message.reply(':crying_cat_face: Agregá una canción')
-        return connection
-    } 
+        return;
+    }
+
     const params = {
         key: API_KEY, // API Key de Youtube API
         q: query, // Término que deseas buscar en los videos de YouTube
@@ -73,7 +46,7 @@ async function playSongText(message, audioPlayer, queuedTracks, connection){
         
         if(!video){
             await channel.send({ content: ':crying_cat_face: No se encontró ningún video' });
-            return connection
+            return;
         }
         
         const source = await play.stream(`https://www.youtube.com/watch?v=${video.id.videoId}`)
@@ -83,7 +56,8 @@ async function playSongText(message, audioPlayer, queuedTracks, connection){
         connection.subscribe(audioPlayer)
         audioPlayer.play(audioResource)
         
-        const embed = createEmbedMessage(message, video, queuedTracks)
+        const data = {event: message, type: 'message'}
+        const embed = createPlayEmbedMessage(data, video, queuedTracks)
         
         const row = sendButtonResponse()
 
@@ -98,7 +72,6 @@ async function playSongText(message, audioPlayer, queuedTracks, connection){
             }
         });
         
-        return connection
     } catch (error) {
         console.log(connection)
         console.log(error)
@@ -116,7 +89,6 @@ async function playSongText(message, audioPlayer, queuedTracks, connection){
                 break;
         }
         await channel.send({ content: message });
-        return connection
     }
 }
 

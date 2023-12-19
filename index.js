@@ -1,14 +1,15 @@
 require('dotenv').config();
 const { Client, Collection, Events, GatewayIntentBits, EmbedBuilder } = require('discord.js');
-const { AudioPlayer } = require('@discordjs/voice');
-const { TOKEN } = process.env
+const { AudioPlayer, joinVoiceChannel } = require('@discordjs/voice');
+const { TOKEN, CLIENT_ID } = process.env
 const { playSongText } = require('./text_commands/play')
 const { checkUserBotAreInSameChannel } = require('./middleware/checkUserBotSameChannel');
 const stopSong = require('./button_commands/stop');
 const skipSong = require('./button_commands/skip');
 const { playSongSlash } = require('./slash_commands/play');
 const deployCommandsOnGuild = require('./deploy_bot_server');
-const http = require('http')
+const http = require('http');
+const { createEnqueueEmbedMessage, inactivityEmbed, disconnectedEmbed } = require('./middleware/embeds');
 
 const requestListener = function (req, res) {
 }
@@ -51,33 +52,6 @@ function addSongToQueue(track){
 	tracks.push(track)
 }
 
-// Función para crear el embed messages cuando agrego una cancion
-function createEnqueueEmbedMessage({event, type}){
-	const query = type === 'message'
-				? event.content.split('!yt ')[1]
-				: event.options._hoistedOptions[0].value
-	
-	const user = type === 'message'
-				? event.author
-				: event.user
-
-	const sentence = tracks.length === 1 ? 'canción' : 'canciones'
-	const avatarURL = `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}`
-
-	const embed = new EmbedBuilder()
-	.setColor(0x0B6E4F)
-	.setAuthor({ name: 'Canción agregada', iconURL: 'https://i.imgur.com/3QhLUzq.png' })
-	.setThumbnail('https://i.imgur.com/YvNmFaK.png')
-	.addFields(
-		{ name: 'En cola', value: `\`\`${tracks.length} ${sentence}\`\``, inline: true }, 
-		{name: 'Término', value: `${query}`, inline: true}
-	)
-	.setTimestamp()
-	.setFooter({ text: `Agregada por ${user.displayName}`, iconURL: `${avatarURL}` });
-	
-	return embed
-}
-
 // Responde a los comandos (/) y pulsados de botones
 client.on(Events.InteractionCreate, async interaction => {
 	
@@ -97,8 +71,7 @@ client.on(Events.InteractionCreate, async interaction => {
 
 	// Si se pulso el botón para detener
 	if(interaction.customId === 'Detener'){
-		connection = await stopSong(interaction, audioPlayer, connection)
-		tracks = []
+		await stopSong(interaction, audioPlayer, connection)
 		return;
 	}
 	
@@ -113,28 +86,29 @@ client.on(Events.InteractionCreate, async interaction => {
 		const data = {event: interaction, type: 'interaction'}
 		
 		addSongToQueue(data) // Sumo la nueva canción a la lista
-		const embed = createEnqueueEmbedMessage(data)
+		const embed = createEnqueueEmbedMessage(data, tracks)
 		
 		return await interaction.reply({embeds: [embed]})
 	}
 
+	if(!connection){ // Si el bot no está conectado a un canal de voz
+        connection = joinVoiceChannel({
+            channelId: interaction.member.voice.channel.id,
+            guildId: interaction.guild.id,
+            adapterCreator: interaction.guild.voiceAdapterCreator
+        });
+    }
+
 	// Si no, la reproduzco
-	connection = await playSongSlash(interaction, audioPlayer, tracks.length, connection)
+	await playSongSlash(interaction, audioPlayer, tracks.length, connection)
 	lastTrackChannel = interaction.channel
 });
 
 // Responde a los comandos de texto (!)
 client.on(Events.MessageCreate, async message => {
 
+
 	if(message.content.startsWith('!yt')){
-		if(audioPlayer.state.status === 'playing'){ //Si se está reproduciendo una canción
-			const data = {event: message, type: 'message'}
-			
-			addSongToQueue(data) //La sumo a la lista
-			const embed = createEnqueueEmbedMessage(data)
-			
-			return await message.channel.send({ embeds: [embed] })
-		}
 		
 		//Me gustaria enviarlos como ephemeral messages pero actualmente no es posible
 		if (!message.member.voice?.channel){
@@ -145,29 +119,40 @@ client.on(Events.MessageCreate, async message => {
 			return await message.reply(':crying_cat_face: No estás en el mismo canal que yo.')
 		} 
 
+		if(audioPlayer.state.status === 'playing'){ //Si se está reproduciendo una canción
+			const data = {event: message, type: 'message'}
+			
+			addSongToQueue(data) //La sumo a la lista
+			const embed = createEnqueueEmbedMessage(data, tracks)
+			
+			return await message.channel.send({ embeds: [embed] })
+		}
+		
+		if(!connection){ // Si el bot no está conectado a un canal de voz
+			connection = joinVoiceChannel({
+				channelId: message.member.voice.channel.id,
+				guildId: message.guild.id,
+				adapterCreator: message.guild.voiceAdapterCreator
+			});
+		}
+
 		// Si no, la reproduzco
-		connection = await playSongText(message, audioPlayer, tracks.length, connection)
+		await playSongText(message, audioPlayer, tracks.length, connection)
 		lastTrackChannel = message.channel
 		
 	}
 })
+
 let timeoutTillDisconect = null
 // Response cuando el reproductor de musica cambia de estado
 audioPlayer.on('stateChange', async (oldState, newState) => {
-
 	// Elimino el contador de inactividad
 	clearTimeout(timeoutTillDisconect)
 
 	// El bot se desconecta tras 3 minutos de inactividad
 	if(newState.status === 'idle'){
 		timeoutTillDisconect = setTimeout(() => {
-			const embed = new EmbedBuilder()
-			.setColor(0x00008b)
-			.setAuthor({name: 'Desconectado por inactividad'})
-			.setDescription(':zzz: Me voy a dormir')
 			connection.destroy() // Desconecto al bot
-			connection = null // Elimino la conexión
-			lastTrackChannel.send({embeds: [embed]}) // Envio aviso al ultimo canal de texto donde se comunicaron con el bot
 		}, 180000);
 	}
 
@@ -184,6 +169,16 @@ audioPlayer.on('stateChange', async (oldState, newState) => {
 // Lo agrego para mantenimiento
 audioPlayer.on('error', (error) => {
 	console.log(error)
+})
+
+// Cuando se desconecta el bot
+client.on('voiceStateUpdate', async (oldVoiceState, newVoiceState) => {
+	if(!newVoiceState.channelId && newVoiceState.id === CLIENT_ID){
+		connection = null
+		tracks = []
+		audioPlayer.stop()
+		lastTrackChannel.send({embeds: [disconnectedEmbed]}) // Envio aviso al ultimo canal de texto donde se comunicaron con el bot
+	}
 })
 
 

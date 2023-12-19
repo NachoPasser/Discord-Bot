@@ -1,28 +1,9 @@
 const { createAudioResource} = require('@discordjs/voice');
 const {SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder} = require('discord.js')
-const { joinVoiceChannel} = require('@discordjs/voice');
-const play = require('play-dl'); // Everything
+const play = require('play-dl');
 const getVideoFromYt = require('../middleware/getVideoFromYt');
+const { createPlayEmbedMessage } = require('../middleware/embeds');
 const { API_KEY } = process.env
-
-function createEmbedMessage(interaction, video, queuedTracks){
-    
-    const sentence = queuedTracks === 1 ? 'canción' : 'canciones'
-    const avatarURL = `https://cdn.discordapp.com/avatars/${interaction.user.id}/${interaction.user.avatar}`
-    const snippet = video.snippet
-    
-    const embed = new EmbedBuilder()
-        .setColor(0x0099FF)
-        .setTitle(`${snippet.title}`)
-        .setURL(`https://www.youtube.com/watch?v=${video.id.videoId}`)
-        .setAuthor({ name: 'Ahora suena', iconURL: 'https://i.imgur.com/3QhLUzq.png' })
-        .setThumbnail(`${snippet.thumbnails.high.url}`)
-        .addFields({ name: 'En cola', value: `\`\`${queuedTracks} ${sentence}\`\``, inline: true })
-        .setTimestamp()
-        .setFooter({ text: `Pedida por ${interaction.user.displayName}`, iconURL: `${avatarURL}` });
-    
-    return embed
-}
 
 const data = new SlashCommandBuilder()
 	.setName('play')
@@ -52,14 +33,6 @@ function sendButtonResponse() {
 
 async function playSongSlash(interaction, audioPlayer, queuedTracks, connection) {
 
-    if(!connection){ // Si el bot no está conectado a un canal de voz
-        connection = joinVoiceChannel({
-            channelId: interaction.member.voice.channel.id,
-            guildId: interaction.guild.id,
-            adapterCreator: interaction.guild.voiceAdapterCreator
-        });
-    }
-
     const params = {
         key: API_KEY, // API Key de Youtube API
         q: interaction.options._hoistedOptions[0].value, // Término que deseas buscar en los videos de YouTube
@@ -76,12 +49,14 @@ async function playSongSlash(interaction, audioPlayer, queuedTracks, connection)
         })
         connection.subscribe(audioPlayer)
         audioPlayer.play(audioResource)
-    
-        const embed = createEmbedMessage(interaction,video,queuedTracks)
+        
+        const data = {event: interaction, type: 'interaction'}
+        const embed = createPlayEmbedMessage(data,video,queuedTracks)
 
         const row = sendButtonResponse()
 
         let reply = null
+        
         // Cuando salteo una canción reutilizo la interacción. Como antes respondí con el aviso, no puedo usar reply
         if(interaction.replied){ 
             reply = await interaction.followUp({
@@ -107,8 +82,7 @@ async function playSongSlash(interaction, audioPlayer, queuedTracks, connection)
                 }
             }
         });
-    
-        return connection
+
     } catch(error){
         console.log(connection)
 		console.log(error)
@@ -131,8 +105,6 @@ async function playSongSlash(interaction, audioPlayer, queuedTracks, connection)
 		} else {
 			await interaction.reply({ content: message, ephemeral: true });
 		}
-
-        return connection
 	}
     
 }
