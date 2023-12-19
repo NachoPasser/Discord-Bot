@@ -60,7 +60,8 @@ async function playSongText(message, audioPlayer, queuedTracks, connection){
         const embed = createPlayEmbedMessage(data, video, queuedTracks)
         
         const row = sendButtonResponse()
-
+        console.log('ENVIO')
+        console.log('-------------------------------------------------------')
         const reply = await channel.send({ embeds: [embed], components: [row]});
         
         // Cuando termina la canción, se deshabilitan los botones
