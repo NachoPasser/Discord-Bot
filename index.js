@@ -63,7 +63,8 @@ async function processQueue() {
 
   while (!commandQueue.isEmpty()) {
     const { event, type } = commandQueue.dequeue();
-
+	console.log(event)
+	console.log('----------------------------------------------------------------------')
 	if(type === 'interaction') await executeSlashCommand(event)
 	else await executeTextCommand(event)
   }
@@ -111,7 +112,8 @@ async function executeSlashCommand(interaction){
 
 // Ejecuto comando (!)
 async function executeTextCommand(message){
-	
+	console.log(audioPlayer.state.status)
+	console.log('----------------------------------------------------------------------')
 	if(audioPlayer.state.status === 'playing'){ //Si se está reproduciendo una canción
 		const data = {event: message, type: 'message'}
 		
@@ -152,8 +154,6 @@ client.on(Events.InteractionCreate, async interaction => {
 	} 
 
 	commandQueue.enqueue({event: interaction, type: 'interaction'})
-	// commandQueue.queue({event: interaction, type: 'interaction', order}) // Encolo el comando
-	// order++;
 
 	if(!processingQueue){
 		processQueue()
@@ -171,11 +171,7 @@ client.on(Events.MessageCreate, async message => {
 		if (!checkUserBotAreInSameChannel(message)){
 			return await message.reply(':crying_cat_face: No estás en el mismo canal que yo.')
 		} 
-		console.log('hola')
 		commandQueue.enqueue({event: message, type: 'message'})
-		
-		// commandQueue.queue({event: message, type: 'message', order}) // Encolo el comando
-		// order++;
 		
 		if(!processingQueue){
 			processQueue()
