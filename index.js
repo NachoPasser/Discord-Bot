@@ -1,15 +1,17 @@
 require('dotenv').config();
-const { Client, Collection, Events, GatewayIntentBits, EmbedBuilder } = require('discord.js');
+const { Client, Collection, Events, GatewayIntentBits } = require('discord.js');
 const { AudioPlayer, joinVoiceChannel } = require('@discordjs/voice');
+const http = require('http');
+const PriorityQueue = require('js-priority-queue');
+const { Queue } = require('@datastructures-js/queue');
 const { TOKEN, CLIENT_ID } = process.env
-const { playSongText } = require('./text_commands/play')
+const deployCommandsOnGuild = require('./deploy_bot_server');
 const { checkUserBotAreInSameChannel } = require('./middleware/checkUserBotSameChannel');
 const stopSong = require('./button_commands/stop');
 const skipSong = require('./button_commands/skip');
 const { playSongSlash } = require('./slash_commands/play');
-const deployCommandsOnGuild = require('./deploy_bot_server');
-const http = require('http');
-const { createEnqueueEmbedMessage, inactivityEmbed, disconnectedEmbed } = require('./middleware/embeds');
+const { playSongText } = require('./text_commands/play')
+const { createEnqueueEmbedMessage, disconnectedEmbed } = require('./middleware/embeds');
 
 const requestListener = function (req, res) {
 }
@@ -22,8 +24,8 @@ const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBit
 // Creo la coleccion de comandos
 client.commands = new Collection();
 
-// Creo la lista de canciones
-let tracks = []
+// Creo la cola de canciones
+let tracks = new Queue();
 
 // Creo el reproductor de musica
 const audioPlayer = new AudioPlayer()
@@ -33,6 +35,9 @@ let connection = null
 
 // Canal donde se pidio la ultima canción
 let lastTrackChannel = null
+
+// Creo la cola de comandos
+let commandQueue = new Queue();
 
 // Se ejecuta una sola vez. En este caso cuando el cliente esta listo.
 client.once(Events.ClientReady, async readyClient => {
@@ -49,7 +54,85 @@ client.on('guildCreate', async (guild) => {
 
 // Función para agregar canciones a la lista
 function addSongToQueue(track){
-	tracks.push(track)
+	tracks.enqueue(track)
+}
+
+let processingQueue = false;
+// Va procesando cada comando en el orden en que fue ingresado
+async function processQueue() {
+  processingQueue = true;
+
+  while (!commandQueue.isEmpty()) {
+    const { event, type } = commandQueue.dequeue();
+
+	if(type === 'interaction') await executeSlashCommand(event)
+	else await executeTextCommand(event)
+  }
+
+  processingQueue = false;
+}
+
+// Ejecuto comando (/) y pulsados de botones
+async function executeSlashCommand(interaction){
+	
+	// Si se pulso el botón para detener
+	if(interaction.customId === 'Detener'){
+		await stopSong(interaction, audioPlayer, connection)
+		return;
+	}
+	
+	// Si se pulso el botón para saltear
+	if(interaction.customId === 'Saltear'){
+		await skipSong(interaction, audioPlayer, tracks.isEmpty())
+		return;
+	} 
+	
+	// Si se está reproduciendo una canción
+	if(audioPlayer.state.status === 'playing'){ 
+		const data = {event: interaction, type: 'interaction'}
+		
+		addSongToQueue(data) // Sumo la nueva canción a la lista
+		const embed = createEnqueueEmbedMessage(data, tracks.size())
+		
+		return await interaction.reply({embeds: [embed]})
+	}
+	
+	if(!connection){ // Si el bot no está conectado a un canal de voz
+		connection = joinVoiceChannel({
+			channelId: interaction.member.voice.channel.id,
+			guildId: interaction.guild.id,
+			adapterCreator: interaction.guild.voiceAdapterCreator
+		});
+	}
+	
+	// Si no, la reproduzco
+	await playSongSlash(interaction, audioPlayer, tracks.size(), connection)
+	lastTrackChannel = interaction.channel
+}
+
+// Ejecuto comando (!)
+async function executeTextCommand(message){
+	
+	if(audioPlayer.state.status === 'playing'){ //Si se está reproduciendo una canción
+		const data = {event: message, type: 'message'}
+		
+		addSongToQueue(data) //La sumo a la lista
+		const embed = createEnqueueEmbedMessage(data, tracks.size())
+		
+		return await message.channel.send({ embeds: [embed] })
+	}
+	
+	if(!connection){ // Si el bot no está conectado a un canal de voz
+		connection = joinVoiceChannel({
+			channelId: message.member.voice.channel.id,
+			guildId: message.guild.id,
+			adapterCreator: message.guild.voiceAdapterCreator
+		});
+	}
+	
+	// Si no, la reproduzco
+	await playSongText(message, audioPlayer, tracks.size(), connection)
+	lastTrackChannel = message.channel
 }
 
 // Responde a los comandos (/) y pulsados de botones
@@ -61,7 +144,7 @@ client.on(Events.InteractionCreate, async interaction => {
 			ephemeral: true
 		})
 	} 
-
+	
 	if (!checkUserBotAreInSameChannel(interaction)){
 		return await interaction.reply({
 			content: ':crying_cat_face:  No estás en el mismo canal que yo.', 
@@ -69,77 +152,35 @@ client.on(Events.InteractionCreate, async interaction => {
 		})
 	} 
 
-	// Si se pulso el botón para detener
-	if(interaction.customId === 'Detener'){
-		await stopSong(interaction, audioPlayer, connection)
-		return;
-	}
-	
-	// Si se pulso el botón para saltear
-	if(interaction.customId === 'Saltear'){
-		await skipSong(interaction, audioPlayer, tracks.length)
-		return;
-	} 
-	
-	// Si se está reproduciendo una canción
-	if(audioPlayer.state.status === 'playing'){ 
-		const data = {event: interaction, type: 'interaction'}
-		
-		addSongToQueue(data) // Sumo la nueva canción a la lista
-		const embed = createEnqueueEmbedMessage(data, tracks)
-		
-		return await interaction.reply({embeds: [embed]})
-	}
+	commandQueue.enqueue({event: interaction, type: 'interaction'})
+	// commandQueue.queue({event: interaction, type: 'interaction', order}) // Encolo el comando
+	// order++;
 
-	if(!connection){ // Si el bot no está conectado a un canal de voz
-        connection = joinVoiceChannel({
-            channelId: interaction.member.voice.channel.id,
-            guildId: interaction.guild.id,
-            adapterCreator: interaction.guild.voiceAdapterCreator
-        });
-    }
-
-	// Si no, la reproduzco
-	await playSongSlash(interaction, audioPlayer, tracks.length, connection)
-	lastTrackChannel = interaction.channel
+	if(!processingQueue){
+		processQueue()
+	}
 });
 
 // Responde a los comandos de texto (!)
 client.on(Events.MessageCreate, async message => {
-
-
 	if(message.content.startsWith('!yt')){
-		
 		//Me gustaria enviarlos como ephemeral messages pero actualmente no es posible
 		if (!message.member.voice?.channel){
 			return await message.reply(':crying_cat_face: Conectaté a un canal de voz')
 		} 
-	
+		
 		if (!checkUserBotAreInSameChannel(message)){
 			return await message.reply(':crying_cat_face: No estás en el mismo canal que yo.')
 		} 
-
-		if(audioPlayer.state.status === 'playing'){ //Si se está reproduciendo una canción
-			const data = {event: message, type: 'message'}
-			
-			addSongToQueue(data) //La sumo a la lista
-			const embed = createEnqueueEmbedMessage(data, tracks)
-			
-			return await message.channel.send({ embeds: [embed] })
-		}
+		console.log('hola')
+		commandQueue.enqueue({event: message, type: 'message'})
 		
-		if(!connection){ // Si el bot no está conectado a un canal de voz
-			connection = joinVoiceChannel({
-				channelId: message.member.voice.channel.id,
-				guildId: message.guild.id,
-				adapterCreator: message.guild.voiceAdapterCreator
-			});
-		}
-
-		// Si no, la reproduzco
-		await playSongText(message, audioPlayer, tracks.length, connection)
-		lastTrackChannel = message.channel
+		// commandQueue.queue({event: message, type: 'message', order}) // Encolo el comando
+		// order++;
 		
+		if(!processingQueue){
+			processQueue()
+		}
 	}
 })
 
@@ -157,12 +198,12 @@ audioPlayer.on('stateChange', async (oldState, newState) => {
 	}
 
 	// Cuando la canción termina y hay canciones pendientes a reproducir
-	if(oldState.status === 'playing' && newState.status === 'idle' && tracks.length){
-		const actualTrack = tracks.shift() //Obtengo y quito la canción de la lista
+	if(oldState.status === 'playing' && newState.status === 'idle' && !tracks.isEmpty()){
+		const actualTrack = tracks.dequeue() //Obtengo y quito la canción de la cola
 		// La reproduzco
-		if(actualTrack.type === 'interaction') await playSongSlash(actualTrack.event, audioPlayer, tracks.length, connection)
+		if(actualTrack.type === 'interaction') await playSongSlash(actualTrack.event, audioPlayer, tracks.size(), connection)
 		
-		else playSongText(actualTrack.event, audioPlayer, tracks.length, connection)
+		else playSongText(actualTrack.event, audioPlayer, tracks.size(), connection)
 	}
 })
 
@@ -175,7 +216,7 @@ audioPlayer.on('error', (error) => {
 client.on('voiceStateUpdate', async (oldVoiceState, newVoiceState) => {
 	if(!newVoiceState.channelId && newVoiceState.id === CLIENT_ID){
 		connection = null
-		tracks = []
+		tracks = new Queue()
 		audioPlayer.stop()
 		lastTrackChannel.send({embeds: [disconnectedEmbed]}) // Envio aviso al ultimo canal de texto donde se comunicaron con el bot
 	}

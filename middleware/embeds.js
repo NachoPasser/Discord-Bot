@@ -1,10 +1,5 @@
 const { EmbedBuilder } = require("discord.js")
 
-const inactivityEmbed = new EmbedBuilder()
-    .setColor(0x00008b)
-    .setAuthor({name: 'Desconectado por inactividad'})
-    .setDescription(':zzz: Me voy a dormir')
-
 const disconnectedEmbed = new EmbedBuilder()
     .setColor(0x00008b)
     .setAuthor({name: 'Desconectado'})
@@ -16,7 +11,7 @@ const emptyQueueEmbed = new EmbedBuilder()
     .setDescription('No quedan más canciones por reproducir :smirk_cat:')
 
 // Función para crear el embed message cuando agrego una cancion
-function createEnqueueEmbedMessage(data, tracks){
+function createEnqueueEmbedMessage(data, numberTracks){
     const {event, type} = data
 	const query = type === 'message'
 				? event.content.split('!yt ')[1]
@@ -26,7 +21,7 @@ function createEnqueueEmbedMessage(data, tracks){
 				? event.author
 				: event.user
 
-	const sentence = tracks.length === 1 ? 'canción' : 'canciones'
+	const sentence = numberTracks === 1 ? 'canción' : 'canciones'
 	const avatarURL = `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}`
 
 	const embed = new EmbedBuilder()
@@ -34,7 +29,7 @@ function createEnqueueEmbedMessage(data, tracks){
 	.setAuthor({ name: 'Canción agregada', iconURL: 'https://i.imgur.com/3QhLUzq.png' })
 	.setThumbnail('https://i.imgur.com/YvNmFaK.png')
 	.addFields(
-		{ name: 'En cola', value: `\`\`${tracks.length} ${sentence}\`\``, inline: true }, 
+		{ name: 'En cola', value: `\`\`${numberTracks} ${sentence}\`\``, inline: true }, 
 		{name: 'Término', value: `${query}`, inline: true}
 	)
 	.setTimestamp()
@@ -67,7 +62,6 @@ function createPlayEmbedMessage(data, video, queuedTracks){
 }
 
 module.exports = {
-    inactivityEmbed, 
     disconnectedEmbed, 
     emptyQueueEmbed, 
     createEnqueueEmbedMessage, 
