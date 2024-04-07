@@ -218,5 +218,7 @@ client.on('voiceStateUpdate', async (oldVoiceState, newVoiceState) => {
 	}
 })
 
-
+setTimeout(() => {
+	console.log('Desperta!')
+}, 360000)
 
